@@ -1,0 +1,1626 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>본인판단 - 실시간 시황</title>
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Brush+Script&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080d1a;
+    --card: rgba(20, 28, 50, 0.85);
+    --card-border: rgba(0, 212, 170, 0.15);
+    --accent: #00d4aa;
+    --positive: #00d4aa;
+    --negative: #ff4757;
+    --neutral: #ffd32a;
+    --text: #e0e8ff;
+    --text-dim: #6b7db3;
+    --tab-bg: rgba(255,255,255,0.05);
+    --tab-active: rgba(0, 212, 170, 0.15);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', 'Malgun Gothic', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  #starCanvas {
+    position: fixed; top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none; z-index: 0;
+  }
+
+  .wrap { position: relative; z-index: 1; }
+
+  /* ── 헤더 ── */
+  header {
+    background: rgba(8, 13, 26, 0.95);
+    border-bottom: 1px solid rgba(0, 212, 170, 0.2);
+    padding: 0 20px;
+    backdrop-filter: blur(8px);
+    position: sticky; top: 0; z-index: 100;
+  }
+
+  .header-top {
+    display: flex; align-items: center; gap: 16px;
+    padding: 10px 0 8px;
+  }
+
+  .logo {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 18px; font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .logo-box {
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  .logo-emoji { font-size: 20px; line-height: 1; }
+
+  .logo-text {
+    font-family: 'Nanum Brush Script', cursive;
+    font-size: 26px;
+    line-height: 1;
+    background: linear-gradient(120deg, #00d4aa 0%, #4aaeff 55%, #b0ccff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: 2px;
+    filter: drop-shadow(0 0 10px rgba(0, 212, 170, 0.45));
+  }
+
+  .live-badge-logo {
+    font-size: 10px; background: rgba(0, 212, 170, 0.12);
+    color: var(--accent); border: 1px solid rgba(0, 212, 170, 0.3);
+    padding: 1px 6px; border-radius: 10px; font-weight: 600;
+    -webkit-text-fill-color: var(--accent);
+  }
+
+  .world-clocks {
+    display: flex; gap: 14px; margin-left: auto; align-items: center;
+  }
+
+  .clock-item { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+  .clock-label { font-size: 10px; color: var(--text-dim); }
+  .clock-time {
+    font-size: 12px; font-weight: 600; color: var(--text);
+    font-variant-numeric: tabular-nums; letter-spacing: 0.5px;
+  }
+
+  .live-badge {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 11px; color: var(--accent); font-weight: 700; margin-left: 8px;
+  }
+
+  .live-dot {
+    width: 7px; height: 7px; background: var(--accent);
+    border-radius: 50%; animation: pulse 1.5s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+  }
+
+  .header-right {
+    display: flex; flex-direction: column; align-items: flex-end;
+    gap: 2px; white-space: nowrap;
+  }
+
+  .date-display { font-size: 12px; color: var(--text-dim); }
+  .last-update { font-size: 10px; color: rgba(107,125,179,0.6); }
+
+  .spinner {
+    display: inline-block; width: 8px; height: 8px;
+    border: 1.5px solid rgba(0,212,170,0.3);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-right: 4px; vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* 탭 */
+  nav.tabs { display: flex; gap: 4px; padding: 6px 0; }
+
+  .tab {
+    padding: 5px 18px; border-radius: 6px; font-size: 13px;
+    cursor: pointer; white-space: nowrap; color: var(--text-dim);
+    background: var(--tab-bg); border: 1px solid transparent;
+    transition: all 0.2s; user-select: none;
+  }
+  .tab:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+  .tab.active { color: var(--accent); background: var(--tab-active); border-color: rgba(0,212,170,0.3); }
+
+  /* ── 메인 ── */
+  main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+
+  /* 가격 카드 */
+  .price-cards {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 14px; margin-bottom: 14px;
+  }
+
+  .price-card {
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: 14px; padding: 20px 22px;
+    position: relative; overflow: hidden; transition: border-color 0.3s;
+  }
+
+  .price-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0.5;
+  }
+
+  .price-card:hover { border-color: rgba(0,212,170,0.35); }
+
+  .coin-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+
+  .coin-icon {
+    width: 30px; height: 30px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700;
+  }
+  .coin-icon.xrp  { background: linear-gradient(135deg, #346aa9, #1a3a5c); color: #6bb5e8; }
+  .coin-icon.btc  { background: linear-gradient(135deg, #f7931a, #c47000); color: #fff; }
+  .coin-icon.eth  { background: linear-gradient(135deg, #627eea, #3a52a8); color: #fff; }
+  .coin-icon.hbar { background: linear-gradient(135deg, #00a6a6, #004040); color: #00ffd5; }
+  .coin-icon.xlm  { background: linear-gradient(135deg, #7dc4e4, #2a618a); color: #fff; }
+  .coin-icon.doge { background: linear-gradient(135deg, #c2a633, #7a6210); color: #fff3b0; }
+
+  .coin-ticker { font-size: 14px; font-weight: 700; color: var(--text); }
+  .coin-fullname { font-size: 11px; color: var(--text-dim); }
+
+  .price-usd {
+    font-size: 34px; font-weight: 800; color: #fff;
+    letter-spacing: -0.5px; line-height: 1.1; margin-bottom: 6px;
+    font-variant-numeric: tabular-nums; transition: color 0.4s;
+  }
+
+  .price-sub { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+  .price-krw { font-size: 13px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+  .change-badge {
+    font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 6px;
+    transition: all 0.4s;
+  }
+  .change-badge.positive { color: var(--positive); background: rgba(0,212,170,0.12); }
+  .change-badge.negative { color: var(--negative); background: rgba(255,71,87,0.12); }
+  .change-period { font-size: 10px; color: var(--text-dim); }
+
+  .source-badge {
+    font-size: 9px; color: rgba(107,125,179,0.5);
+    position: absolute; top: 10px; right: 12px;
+    background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 4px;
+  }
+
+  @keyframes flashGreen { 0%,100% { box-shadow: none; } 50% { box-shadow: 0 0 18px 3px rgba(0,212,170,0.4); } }
+  @keyframes flashRed   { 0%,100% { box-shadow: none; } 50% { box-shadow: 0 0 18px 3px rgba(255,71,87,0.4);  } }
+  .flash-up   { animation: flashGreen 0.6s; }
+  .flash-down { animation: flashRed   0.6s; }
+
+  /* 티커 바 */
+  .ticker-bar {
+    background: rgba(15,22,42,0.8); border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 18px;
+    position: relative;
+  }
+
+  /* 좌우 페이드 마스크 */
+  .ticker-bar::before,
+  .ticker-bar::after {
+    content: ''; position: absolute; top: 0; bottom: 0; width: 40px; z-index: 2;
+    pointer-events: none;
+  }
+  .ticker-bar::before { left: 0;  background: linear-gradient(to right,  rgba(15,22,42,0.9), transparent); }
+  .ticker-bar::after  { right: 0; background: linear-gradient(to left, rgba(15,22,42,0.9), transparent); }
+
+  .ticker-track {
+    display: flex;
+    width: max-content;
+    animation: ticker-slide 40s linear infinite;
+    padding: 10px 0;
+  }
+
+  .ticker-track:hover { animation-play-state: paused; }
+
+  @keyframes ticker-slide {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+
+  .ticker-item {
+    display: flex; flex-direction: column; align-items: center;
+    min-width: 88px; padding: 4px 10px;
+    border-right: 1px solid rgba(255,255,255,0.06); gap: 2px;
+  }
+  .ticker-item:last-child { border-right: none; }
+  .ticker-label { font-size: 10px; color: var(--text-dim); white-space: nowrap; }
+  .ticker-value {
+    font-size: 13px; font-weight: 600; color: var(--text);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .ticker-change { font-size: 10px; font-weight: 600; }
+  .ticker-change.pos { color: var(--positive); }
+  .ticker-change.neg { color: var(--negative); }
+  .ticker-change.neu { color: var(--text-dim); }
+
+  /* 하단 패널 */
+  .bottom-panels { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+  .panel {
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: 14px; padding: 20px; min-height: 200px;
+  }
+
+  .panel-title {
+    font-size: 14px; font-weight: 700; color: var(--text);
+    margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+  }
+  .panel-title::before {
+    content: ''; width: 3px; height: 14px;
+    background: var(--accent); border-radius: 2px;
+  }
+
+  /* 알트시즌 인덱스 */
+  .altseason-panel {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+  }
+
+  .alt-gauge-wrap {
+    position: relative; width: 180px; height: 100px;
+  }
+  .alt-gauge-wrap svg { overflow: visible; }
+  .alt-gauge-number {
+    position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+    font-size: 40px; font-weight: 900; line-height: 1;
+    font-variant-numeric: tabular-nums; transition: color 0.5s;
+  }
+
+  .alt-season-label {
+    font-size: 15px; font-weight: 700; margin-top: -4px; transition: color 0.5s;
+  }
+
+  .alt-zone-row {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 5px; width: 100%; margin-top: 2px;
+  }
+  .alt-zone-item {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 6px 4px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(255,255,255,0.02);
+    font-size: 10px; color: var(--text-dim);
+    transition: background 0.3s, border-color 0.3s;
+  }
+  .alt-zone-item.active {
+    background: rgba(255,255,255,0.07);
+    border-color: rgba(255,255,255,0.18);
+    color: var(--text);
+  }
+  .alt-zone-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+  }
+
+  .alt-stats-row {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 8px; width: 100%;
+  }
+  .alt-stat-box {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 10px; padding: 8px 10px; text-align: center;
+  }
+  .alt-stat-val {
+    font-size: 17px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .alt-stat-lbl {
+    font-size: 10px; color: var(--text-dim); margin-top: 2px;
+  }
+
+  /* 공포/탐욕 */
+  .fng-panel { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .fng-label-top { font-size: 11px; color: var(--text-dim); letter-spacing: 1px; }
+  .gauge-wrap { position: relative; width: 180px; height: 100px; }
+  .gauge-wrap svg { overflow: visible; }
+  .gauge-number {
+    position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+    font-size: 40px; font-weight: 900; line-height: 1;
+    font-variant-numeric: tabular-nums; transition: color 0.5s;
+  }
+  .fng-label-bottom { font-size: 15px; font-weight: 700; margin-top: -4px; transition: color 0.5s; }
+
+  /* 주요뉴스 패널 */
+  .news-item {
+    display: flex; gap: 9px; padding: 10px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05); align-items: flex-start;
+  }
+  .news-item:last-child { border-bottom: none; }
+  .news-coin-tag {
+    font-size: 10px; font-weight: 700; padding: 2px 6px;
+    border-radius: 4px; white-space: nowrap; flex-shrink: 0;
+    margin-top: 1px; letter-spacing: 0.5px;
+  }
+  .news-coin-tag.btc { background: rgba(247,147,26,0.13); color: #f7931a; border: 1px solid rgba(247,147,26,0.28); }
+  .news-coin-tag.xrp { background: rgba(74,174,255,0.13); color: #4aaeff; border: 1px solid rgba(74,174,255,0.28); }
+  .news-coin-tag.xlm { background: rgba(125,196,228,0.13); color: #7dc4e4; border: 1px solid rgba(125,196,228,0.28); }
+  .news-body { flex: 1; min-width: 0; }
+  .news-headline {
+    font-size: 12px; color: var(--text); line-height: 1.45;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .news-headline a { color: inherit; text-decoration: none; }
+  .news-headline a:hover { color: var(--accent); text-decoration: underline; }
+  .news-meta { font-size: 10px; color: rgba(107,125,179,0.65); margin-top: 3px; }
+
+  /* ── 차트 탭 ── */
+  .chart-coin-btns {
+    display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;
+  }
+  .chart-btn {
+    padding: 6px 16px; border-radius: 8px; font-size: 13px;
+    cursor: pointer; border: 1px solid rgba(255,255,255,0.12);
+    background: var(--tab-bg); color: var(--text-dim);
+    transition: all 0.2s; user-select: none;
+  }
+  .chart-btn:hover { background: rgba(255,255,255,0.1); color: var(--text); }
+  .chart-btn.active { color: var(--accent); background: var(--tab-active); border-color: rgba(0,212,170,0.3); }
+  #tv-chart-container {
+    border-radius: 12px; overflow: hidden;
+    border: 1px solid rgba(0,212,170,0.1); height: 520px;
+  }
+
+  /* ── 김프 탭 ── */
+  .kimp-table-wrap {
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: 14px; overflow: hidden;
+  }
+  .kimp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .kimp-table th {
+    padding: 12px 16px; text-align: right; font-size: 11px;
+    color: var(--text-dim); background: rgba(0,0,0,0.2);
+    border-bottom: 1px solid rgba(255,255,255,0.06); white-space: nowrap;
+  }
+  .kimp-table th:first-child { text-align: left; }
+  .kimp-table td {
+    padding: 14px 16px; text-align: right;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .kimp-table td:first-child { text-align: left; }
+  .kimp-table tr:last-child td { border-bottom: none; }
+  .kimp-table tr:hover td { background: rgba(255,255,255,0.02); }
+  .kimp-coin { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+  .kimp-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .kimp-pos { color: var(--positive); font-weight: 700; }
+  .kimp-neg { color: var(--negative); font-weight: 700; }
+  .kimp-neu { color: var(--text-dim); }
+  .kimp-info {
+    margin-top: 0; padding: 12px 16px; font-size: 12px;
+    color: var(--text-dim); line-height: 1.6;
+    background: rgba(0,212,170,0.04);
+    border-top: 1px solid rgba(0,212,170,0.1);
+  }
+
+  /* 텔레그램 버튼 */
+  .tg-btn {
+    margin-left: auto; display: flex; align-items: center; gap: 6px;
+    padding: 5px 12px; border-radius: 8px; font-size: 12px; font-weight: 600;
+    cursor: pointer; border: 1px solid rgba(0,136,204,0.4);
+    background: rgba(0,136,204,0.1); color: #29b6f6;
+    transition: background 0.2s, border-color 0.2s;
+    white-space: nowrap;
+  }
+  .tg-btn:hover { background: rgba(0,136,204,0.22); border-color: rgba(0,136,204,0.6); }
+  .tg-btn svg   { flex-shrink: 0; }
+
+  /* 모달 오버레이 */
+  .tg-overlay {
+    display: none; position: fixed; inset: 0; z-index: 999;
+    background: rgba(0,0,0,0.65); backdrop-filter: blur(4px);
+    align-items: center; justify-content: center;
+  }
+  .tg-overlay.open { display: flex; }
+
+  .tg-modal {
+    background: #0f1628; border: 1px solid rgba(0,136,204,0.3);
+    border-radius: 16px; padding: 28px; width: 360px; max-width: 94vw;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  }
+  .tg-modal h3 {
+    margin: 0 0 6px; font-size: 16px; color: #29b6f6;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .tg-modal p  { margin: 0 0 20px; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+  .tg-field    { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .tg-field label { font-size: 11px; color: var(--text-dim); letter-spacing: 0.5px; }
+  .tg-field input {
+    padding: 8px 12px; border-radius: 8px; font-size: 13px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+    color: var(--text); outline: none;
+    transition: border-color 0.2s;
+  }
+  .tg-field input:focus { border-color: rgba(0,136,204,0.5); }
+  .tg-actions { display: flex; gap: 8px; margin-top: 6px; }
+  .tg-save {
+    flex: 1; padding: 9px; border-radius: 8px; font-size: 13px; font-weight: 700;
+    cursor: pointer; border: none; background: #0088cc; color: #fff;
+    transition: background 0.2s;
+  }
+  .tg-save:hover { background: #0099dd; }
+  .tg-test {
+    padding: 9px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    cursor: pointer; border: 1px solid rgba(0,212,170,0.4);
+    background: rgba(0,212,170,0.1); color: var(--accent);
+    transition: background 0.2s;
+  }
+  .tg-test:hover { background: rgba(0,212,170,0.2); }
+  .tg-close {
+    float: right; background: none; border: none; color: var(--text-dim);
+    font-size: 18px; cursor: pointer; line-height: 1; padding: 0;
+  }
+  .tg-status { font-size: 11px; min-height: 16px; margin-top: 10px; text-align: center; }
+  .tg-status.ok  { color: var(--positive); }
+  .tg-status.err { color: var(--negative); }
+
+  /* 반응형 */
+  @media (max-width: 1100px) {
+    .price-cards { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 700px) {
+    .price-cards { grid-template-columns: 1fr; }
+    .bottom-panels { grid-template-columns: 1fr; }
+    .price-usd { font-size: 28px; }
+  }
+  @media (max-width: 600px) {
+    main { padding: 12px; }
+    .header-top { flex-wrap: wrap; }
+    .world-clocks { order: 3; width: 100%; justify-content: center; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="starCanvas"></canvas>
+
+<div class="wrap">
+  <header>
+    <div class="header-top">
+      <div class="logo">
+        <div class="logo-box">
+          <span class="logo-emoji">🌌</span>
+          <span class="logo-text">본인판단</span>
+        </div>
+        <span class="live-badge-logo">LIVE</span>
+      </div>
+
+      <div class="world-clocks">
+        <div class="clock-item">
+          <span class="clock-label">서울</span>
+          <span class="clock-time" id="clock-seoul"></span>
+        </div>
+        <div class="clock-item">
+          <span class="clock-label">뉴욕</span>
+          <span class="clock-time" id="clock-ny"></span>
+        </div>
+        <div class="clock-item">
+          <span class="clock-label">인도</span>
+          <span class="clock-time" id="clock-india"></span>
+        </div>
+        <div class="clock-item">
+          <span class="clock-label">도쿄</span>
+          <span class="clock-time" id="clock-tokyo"></span>
+        </div>
+        <div class="live-badge">
+          <span class="live-dot"></span>
+          LIVE
+        </div>
+      </div>
+
+      <div class="header-right">
+        <div class="date-display" id="date-display"></div>
+        <div class="last-update" id="last-update">로딩 중...</div>
+      </div>
+
+      <!-- 텔레그램 설정 버튼 -->
+      <button class="tg-btn" onclick="openTgModal()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L8.32 13.617l-2.96-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.828.942z"/>
+        </svg>
+        텔레그램
+      </button>
+    </div>
+
+    <!-- 텔레그램 설정 모달 -->
+    <div class="tg-overlay" id="tg-overlay" onclick="closeTgModalOutside(event)">
+      <div class="tg-modal">
+        <h3>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#29b6f6">
+            <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L8.32 13.617l-2.96-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.828.942z"/>
+          </svg>
+          텔레그램 자동 전송
+          <button class="tg-close" onclick="closeTgModal()">✕</button>
+        </h3>
+        <p>매일 오전 9시 (한국 시간) 시황 요약을 자동 전송합니다.<br>
+          ① <a href="https://t.me/BotFather" target="_blank" style="color:#29b6f6">@BotFather</a>에서 봇 생성 후 토큰 복사<br>
+          ② 봇에게 메시지를 보낸 뒤 Chat ID 확인</p>
+        <div class="tg-field">
+          <label>BOT TOKEN</label>
+          <input id="tg-token-input" type="password" placeholder="123456:ABC-DEF...">
+        </div>
+        <div class="tg-field">
+          <label>CHAT ID</label>
+          <input id="tg-chatid-input" type="text" placeholder="-100xxxxxxxxxx 또는 본인 ID">
+        </div>
+        <div class="tg-actions">
+          <button class="tg-save" onclick="saveTgConfig()">저장</button>
+          <button class="tg-test" onclick="sendTelegramReport(false)">지금 전송</button>
+        </div>
+        <div class="tg-status" id="tg-status"></div>
+      </div>
+    </div>
+
+    <nav class="tabs">
+      <div class="tab active" data-tab="시황">시황</div>
+      <div class="tab" data-tab="차트">차트</div>
+      <div class="tab" data-tab="김프">김프</div>
+    </nav>
+  </header>
+
+  <main>
+
+    <!-- ══════════════════ 시황 탭 ══════════════════ -->
+    <section id="tab-시황">
+
+      <!-- 메인 가격 카드 6개 -->
+      <div class="price-cards">
+
+        <!-- XRP -->
+        <div class="price-card" id="card-xrp">
+          <span class="source-badge">Binance</span>
+          <div class="coin-header">
+            <div class="coin-icon xrp">X</div>
+            <div><div class="coin-ticker">XRP</div><div class="coin-fullname">Ripple</div></div>
+          </div>
+          <div class="price-usd" id="card-xrp-usd">—</div>
+          <div class="price-sub">
+            <span class="price-krw" id="card-xrp-krw">—</span>
+            <span class="change-badge" id="card-xrp-chg">—</span>
+            <span class="change-period">24h</span>
+          </div>
+        </div>
+
+        <!-- BTC -->
+        <div class="price-card" id="card-btc">
+          <span class="source-badge">Binance</span>
+          <div class="coin-header">
+            <div class="coin-icon btc">₿</div>
+            <div><div class="coin-ticker">BTC</div><div class="coin-fullname">Bitcoin</div></div>
+          </div>
+          <div class="price-usd" id="card-btc-usd">—</div>
+          <div class="price-sub">
+            <span class="price-krw" id="card-btc-krw">—</span>
+            <span class="change-badge" id="card-btc-chg">—</span>
+            <span class="change-period">24h</span>
+          </div>
+        </div>
+
+        <!-- HBAR -->
+        <div class="price-card" id="card-hbar">
+          <span class="source-badge">Binance</span>
+          <div class="coin-header">
+            <div class="coin-icon hbar">ℏ</div>
+            <div><div class="coin-ticker">HBAR</div><div class="coin-fullname">Hedera</div></div>
+          </div>
+          <div class="price-usd" id="card-hbar-usd">—</div>
+          <div class="price-sub">
+            <span class="price-krw" id="card-hbar-krw">—</span>
+            <span class="change-badge" id="card-hbar-chg">—</span>
+            <span class="change-period">24h</span>
+          </div>
+        </div>
+
+        <!-- XLM -->
+        <div class="price-card" id="card-xlm">
+          <span class="source-badge">Binance</span>
+          <div class="coin-header">
+            <div class="coin-icon xlm">★</div>
+            <div><div class="coin-ticker">XLM</div><div class="coin-fullname">Stellar</div></div>
+          </div>
+          <div class="price-usd" id="card-xlm-usd">—</div>
+          <div class="price-sub">
+            <span class="price-krw" id="card-xlm-krw">—</span>
+            <span class="change-badge" id="card-xlm-chg">—</span>
+            <span class="change-period">24h</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 티커 바 (무한 슬라이드) -->
+      <div class="ticker-bar">
+        <div class="ticker-track" id="ticker-track">
+          <!-- ── 원본 (JS가 값 업데이트) ── -->
+          <div class="ticker-item"><span class="ticker-label">BTC.D</span><span class="ticker-value" id="tick-btcd">—</span><span class="ticker-change neu" id="tick-btcd-chg">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">XRP.D</span><span class="ticker-value" id="tick-xrpd">—</span><span class="ticker-change neu" id="tick-xrpd-chg">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">XLM</span><span class="ticker-value" id="tick-xlm-val">—</span><span class="ticker-change neu" id="tick-xlm-chg">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">SOL</span><span class="ticker-value" id="tick-sol-val">—</span><span class="ticker-change neu" id="tick-sol-chg">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">HBAR</span><span class="ticker-value" id="tick-hbar-val">—</span><span class="ticker-change neu" id="tick-hbar-chg">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">DOGE</span><span class="ticker-value" id="tick-doge-val">—</span><span class="ticker-change neu" id="tick-doge-chg">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">S&amp;P 500</span><span class="ticker-value" id="tick-sp-val">—</span><span class="ticker-change neu" id="tick-sp-chg">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">NASDAQ</span><span class="ticker-value" id="tick-nq-val">—</span><span class="ticker-change neu" id="tick-nq-chg">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">KOSPI</span><span class="ticker-value" id="tick-ks-val">—</span><span class="ticker-change neu" id="tick-ks-chg">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">USD/KRW</span><span class="ticker-value" id="tick-fx-val">—</span><span class="ticker-change neu">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">GOLD</span><span class="ticker-value" id="tick-gold-val">—</span><span class="ticker-change neu" id="tick-gold-chg">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">SILVER</span><span class="ticker-value" id="tick-silver-val">—</span><span class="ticker-change neu" id="tick-silver-chg">—</span></div>
+          <!-- ── 복제본 (무한 루프용, -c 접미사) ── -->
+          <div class="ticker-item"><span class="ticker-label">BTC.D</span><span class="ticker-value" id="tick-btcd-c">—</span><span class="ticker-change neu" id="tick-btcd-chg-c">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">XRP.D</span><span class="ticker-value" id="tick-xrpd-c">—</span><span class="ticker-change neu" id="tick-xrpd-chg-c">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">XLM</span><span class="ticker-value" id="tick-xlm-val-c">—</span><span class="ticker-change neu" id="tick-xlm-chg-c">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">SOL</span><span class="ticker-value" id="tick-sol-val-c">—</span><span class="ticker-change neu" id="tick-sol-chg-c">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">HBAR</span><span class="ticker-value" id="tick-hbar-val-c">—</span><span class="ticker-change neu" id="tick-hbar-chg-c">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">DOGE</span><span class="ticker-value" id="tick-doge-val-c">—</span><span class="ticker-change neu" id="tick-doge-chg-c">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">S&amp;P 500</span><span class="ticker-value" id="tick-sp-val-c">—</span><span class="ticker-change neu" id="tick-sp-chg-c">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">NASDAQ</span><span class="ticker-value" id="tick-nq-val-c">—</span><span class="ticker-change neu" id="tick-nq-chg-c">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">KOSPI</span><span class="ticker-value" id="tick-ks-val-c">—</span><span class="ticker-change neu" id="tick-ks-chg-c">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">USD/KRW</span><span class="ticker-value" id="tick-fx-val-c">—</span><span class="ticker-change neu">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">GOLD</span><span class="ticker-value" id="tick-gold-val-c">—</span><span class="ticker-change neu" id="tick-gold-chg-c">—</span></div>
+          <div class="ticker-item"><span class="ticker-label">SILVER</span><span class="ticker-value" id="tick-silver-val-c">—</span><span class="ticker-change neu" id="tick-silver-chg-c">—</span></div>
+        </div>
+      </div>
+
+      <!-- 하단 패널 -->
+      <div class="bottom-panels">
+
+        <div class="panel">
+          <div class="panel-title">알트시즌 인덱스</div>
+          <div class="altseason-panel">
+
+            <!-- 반원 게이지 -->
+            <div class="alt-gauge-wrap">
+              <svg viewBox="0 0 180 100" width="180" height="100">
+                <defs>
+                  <linearGradient id="altGaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%"   style="stop-color:#f7931a"/>
+                    <stop offset="28%"  style="stop-color:#ffd32a"/>
+                    <stop offset="62%"  style="stop-color:#4aaeff"/>
+                    <stop offset="100%" style="stop-color:#00d4aa"/>
+                  </linearGradient>
+                </defs>
+                <!-- 배경 트랙 -->
+                <path d="M 10 90 A 80 80 0 0 1 170 90" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="14" stroke-linecap="round"/>
+                <!-- 전체 그라디언트 힌트 -->
+                <path d="M 10 90 A 80 80 0 0 1 170 90" fill="none" stroke="url(#altGaugeGrad)" stroke-width="14" stroke-linecap="round" opacity="0.22"/>
+                <!-- 채워진 아크 -->
+                <path id="altGaugeArc" d="M 10 90 A 80 80 0 0 1 170 90" fill="none" stroke="#888" stroke-width="14" stroke-linecap="round" stroke-dasharray="251.3" stroke-dashoffset="251.3"/>
+                <!-- 바늘 -->
+                <line id="altGaugeNeedle" x1="90" y1="90" x2="90" y2="20" stroke="#fff" stroke-width="2.5" stroke-linecap="round" transform="rotate(-90 90 90)"/>
+                <circle cx="90" cy="90" r="5" fill="#fff"/>
+              </svg>
+              <div class="alt-gauge-number" id="alt-score">—</div>
+            </div>
+
+            <!-- 시즌 레이블 -->
+            <div class="alt-season-label" id="alt-season-label">로딩 중</div>
+
+            <!-- 4구간 존 표시 -->
+            <div class="alt-zone-row">
+              <div class="alt-zone-item" id="alt-zone-0">
+                <span class="alt-zone-dot" style="background:#f7931a"></span><span>BTC</span>
+              </div>
+              <div class="alt-zone-item" id="alt-zone-1">
+                <span class="alt-zone-dot" style="background:#ffd32a"></span><span>중립</span>
+              </div>
+              <div class="alt-zone-item" id="alt-zone-2">
+                <span class="alt-zone-dot" style="background:#4aaeff"></span><span>알트↑</span>
+              </div>
+              <div class="alt-zone-item" id="alt-zone-3">
+                <span class="alt-zone-dot" style="background:#00d4aa"></span><span>알트시즌</span>
+              </div>
+            </div>
+
+            <!-- 통계 박스 2개 -->
+            <div class="alt-stats-row">
+              <div class="alt-stat-box">
+                <div class="alt-stat-val" id="alt-beat-count">—</div>
+                <div class="alt-stat-lbl">BTC 대비 상회</div>
+              </div>
+              <div class="alt-stat-box">
+                <div class="alt-stat-val" id="alt-btc90">—</div>
+                <div class="alt-stat-lbl">BTC 90일 수익률</div>
+              </div>
+            </div>
+
+            <div style="font-size:10px;color:rgba(107,125,179,0.45);text-align:center">
+              CoinGecko · 상위 50 · 5분 갱신
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title">공포 / 탐욕</div>
+          <div class="fng-panel">
+            <span class="fng-label-top">CRYPTO V2</span>
+            <div class="gauge-wrap">
+              <svg viewBox="0 0 180 100" width="180" height="100">
+                <path d="M 10 90 A 80 80 0 0 1 170 90" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="14" stroke-linecap="round"/>
+                <defs>
+                  <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" style="stop-color:#ff4757"/>
+                    <stop offset="50%" style="stop-color:#ffd32a"/>
+                    <stop offset="100%" style="stop-color:#00d4aa"/>
+                  </linearGradient>
+                </defs>
+                <path d="M 10 90 A 80 80 0 0 1 170 90" fill="none" stroke="url(#gaugeGrad)" stroke-width="14" stroke-linecap="round" opacity="0.3"/>
+                <path id="gaugeArc" d="M 10 90 A 80 80 0 0 1 170 90" fill="none" stroke="#888" stroke-width="14" stroke-linecap="round" stroke-dasharray="251.3" stroke-dashoffset="251.3"/>
+                <line id="gaugeNeedle" x1="90" y1="90" x2="90" y2="20" stroke="#fff" stroke-width="2.5" stroke-linecap="round" transform="rotate(-90 90 90)"/>
+                <circle cx="90" cy="90" r="5" fill="#fff"/>
+              </svg>
+              <div class="gauge-number" id="fng-number">—</div>
+            </div>
+            <div class="fng-label-bottom" id="fng-label">로딩 중</div>
+            <div style="font-size:11px;color:var(--text-dim);margin-top:4px;" id="fng-yesterday"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title">주요 뉴스</div>
+          <div class="news-item">
+            <div class="news-coin-tag btc">BTC</div>
+            <div class="news-body">
+              <div class="news-headline" id="news-btc-title">로딩 중...</div>
+              <div class="news-meta"    id="news-btc-meta">—</div>
+            </div>
+          </div>
+          <div class="news-item">
+            <div class="news-coin-tag xrp">XRP</div>
+            <div class="news-body">
+              <div class="news-headline" id="news-xrp-title">로딩 중...</div>
+              <div class="news-meta"    id="news-xrp-meta">—</div>
+            </div>
+          </div>
+          <div class="news-item">
+            <div class="news-coin-tag xlm">XLM</div>
+            <div class="news-body">
+              <div class="news-headline" id="news-xlm-title">로딩 중...</div>
+              <div class="news-meta"    id="news-xlm-meta">—</div>
+            </div>
+          </div>
+          <div style="font-size:10px;color:rgba(107,125,179,0.4);margin-top:6px">
+            CoinTelegraph / Bitcoin Magazine / Decrypt · 10분 갱신
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ══════════════════ 차트 탭 ══════════════════ -->
+    <section id="tab-차트" style="display:none">
+      <div class="chart-coin-btns">
+        <button class="chart-btn active" data-symbol="UPBIT:BTCKRW"  onclick="switchChart(this)">BTC</button>
+        <button class="chart-btn"        data-symbol="UPBIT:ETHKRW"  onclick="switchChart(this)">ETH</button>
+        <button class="chart-btn"        data-symbol="UPBIT:XRPKRW"  onclick="switchChart(this)">XRP</button>
+        <button class="chart-btn"        data-symbol="UPBIT:HBARKRW" onclick="switchChart(this)">HBAR</button>
+        <button class="chart-btn"        data-symbol="UPBIT:XLMKRW"  onclick="switchChart(this)">XLM</button>
+        <button class="chart-btn"        data-symbol="UPBIT:DOGEKRW" onclick="switchChart(this)">DOGE</button>
+        <button class="chart-btn"        data-symbol="UPBIT:SOLKRW"  onclick="switchChart(this)">SOL</button>
+      </div>
+      <div id="tv-chart-container"></div>
+    </section>
+
+    <!-- ══════════════════ 김프 탭 ══════════════════ -->
+    <section id="tab-김프" style="display:none">
+      <div class="kimp-table-wrap">
+        <table class="kimp-table">
+          <thead>
+            <tr>
+              <th>코인</th>
+              <th>바이낸스 USD</th>
+              <th>환산가 (USD×환율)</th>
+              <th>업비트 KRW</th>
+              <th>김치프리미엄</th>
+            </tr>
+          </thead>
+          <tbody id="kimp-tbody">
+            <tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:30px">데이터 로딩 중...</td></tr>
+          </tbody>
+        </table>
+        <div class="kimp-info">
+          USD/KRW 환율: <strong id="kimp-rate">—</strong>
+          &nbsp;|&nbsp; 김치프리미엄 = (업비트 KRW ÷ (바이낸스USD × 환율) − 1) × 100
+          &nbsp;|&nbsp; <span style="color:var(--text-dim)">바이낸스 USDT 기준</span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="https://s3.tradingview.com/tv.js"></script>
+<script>
+// ═══════════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════════
+const REFRESH_MS = 60000;
+
+const BINANCE_SYMS = ['BTCUSDT','ETHUSDT','XRPUSDT','XLMUSDT','SOLUSDT','HBARUSDT','DOGEUSDT'];
+const BINANCE_URL  = 'https://api.binance.com/api/v3/ticker/24hr?symbols=' +
+  encodeURIComponent(JSON.stringify(BINANCE_SYMS));
+
+const FNG_URL   = 'https://api.alternative.me/fng/?limit=2';
+const UPBIT_URL = 'https://api.upbit.com/v1/ticker?markets=KRW-BTC,KRW-ETH,KRW-XRP,KRW-XLM,KRW-SOL,KRW-HBAR,KRW-DOGE';
+
+// USD/KRW — Frankfurter.app (무료·CORS·안정)
+const FX_URL = 'https://api.frankfurter.app/latest?from=USD&to=KRW';
+
+// BTC.D / XRP.D — Coinpaprika (무료·CORS·안정)
+const PAPRIKA_GLOBAL_URL = 'https://api.coinpaprika.com/v1/global';
+const PAPRIKA_XRP_URL    = 'https://api.coinpaprika.com/v1/tickers/xrp-xrp';
+
+// 주식/금/은 — Yahoo Finance v8 via allorigins (S&P500·NASDAQ·KOSPI·GOLD·SILVER)
+const AO = url => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+const YF  = sym => AO('https://query1.finance.yahoo.com/v8/finance/chart/' +
+  encodeURIComponent(sym) + '?range=1d&interval=1d');
+
+const YF_URLS = { sp: YF('^GSPC'), nq: YF('^IXIC'), ks: YF('^KS11'), gold: YF('GC=F'), silver: YF('SI=F') };
+
+// 네이버 금융 — KOSPI 보조 소스
+const NAVER_KOSPI_URL = AO('https://m.stock.naver.com/api/index/KOSPI/basic');
+
+// ═══════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════
+let S = {
+  binance:  {},
+  upbitMap: {},
+  usdKrw:   null,
+  btcDom:   null,
+  xrpDom:   null,
+  fng:      null,
+  yf:       { sp: null, nq: null, ks: null, gold: null, silver: null },
+};
+
+// ═══════════════════════════════════════════
+//  FETCH
+// ═══════════════════════════════════════════
+function fetchJSON(url, ms = 8000) {
+  return Promise.race([
+    fetch(url).then(r => { if (!r.ok) throw r.status; return r.json(); }),
+    new Promise((_, rej) => setTimeout(() => rej('timeout'), ms))
+  ]).catch(() => null);
+}
+
+async function refreshData() {
+  setLoading(true);
+
+  const [bn, fng, fx, ub, papGlobal, papXrp, yfSp, yfNq, yfKs, yfGold, yfSilver] = await Promise.all([
+    fetchJSON(BINANCE_URL),
+    fetchJSON(FNG_URL),
+    fetchJSON(FX_URL,            8000),
+    fetchJSON(UPBIT_URL),
+    fetchJSON(PAPRIKA_GLOBAL_URL, 8000),
+    fetchJSON(PAPRIKA_XRP_URL,    8000),
+    fetchJSON(YF_URLS.sp,        12000),
+    fetchJSON(YF_URLS.nq,        12000),
+    fetchJSON(YF_URLS.ks,        12000),
+    fetchJSON(YF_URLS.gold,      12000),
+    fetchJSON(YF_URLS.silver,    12000),
+  ]);
+
+  // Binance
+  if (bn) {
+    S.binance = {};
+    bn.forEach(t => {
+      const sym = t.symbol.replace('USDT', '');
+      S.binance[sym] = {
+        usd:       parseFloat(t.lastPrice),
+        change24h: parseFloat(t.priceChangePercent)
+      };
+    });
+  }
+
+  // Upbit
+  if (ub) {
+    S.upbitMap = {};
+    ub.forEach(t => {
+      S.upbitMap[t.market.replace('KRW-', '').toLowerCase()] = t;
+    });
+  }
+
+  if (fng) S.fng = fng;
+
+  // USD/KRW — Frankfurter.app
+  if (fx?.rates?.KRW) S.usdKrw = fx.rates.KRW;
+
+  // BTC.D / XRP.D — Coinpaprika
+  if (papGlobal?.bitcoin_dominance_percentage != null)
+    S.btcDom = papGlobal.bitcoin_dominance_percentage;
+  if (papXrp && papGlobal?.market_cap_usd) {
+    const xrpMcap = papXrp.quotes?.USD?.market_cap;
+    if (xrpMcap) S.xrpDom = xrpMcap / papGlobal.market_cap_usd * 100;
+  }
+
+  // Yahoo Finance v8
+  ['sp','nq','ks','gold','silver'].forEach((k, i) => {
+    const d = [yfSp, yfNq, yfKs, yfGold, yfSilver][i];
+    const meta = d?.chart?.result?.[0]?.meta;
+    if (meta) S.yf[k] = {
+      price:  meta.regularMarketPrice,
+      change: (() => {
+        const prev = meta.chartPreviousClose ?? meta.previousClose;
+        return prev ? (meta.regularMarketPrice - prev) / prev * 100 : null;
+      })()
+    };
+  });
+
+  updateUI();
+  setLoading(false);
+}
+
+// ═══════════════════════════════════════════
+//  FORMATTERS
+// ═══════════════════════════════════════════
+function fmtUSD(n) {
+  if (n == null) return '—';
+  if (n >= 10000) return '$' + Math.round(n).toLocaleString('en-US');
+  if (n >= 1)     return '$' + n.toFixed(2);
+  if (n >= 0.01)  return '$' + n.toFixed(4);
+  return '$' + n.toFixed(6);
+}
+
+function fmtKRW(n) {
+  if (n == null) return '—';
+  return '₩' + Math.round(n).toLocaleString('ko-KR');
+}
+
+function fmtPct(n) {
+  if (n == null) return '—';
+  return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+}
+
+function fngLabel(v) {
+  if (v <= 24) return '극도의 공포';
+  if (v <= 44) return '공포';
+  if (v <= 55) return '중립';
+  if (v <= 75) return '탐욕';
+  return '극도의 탐욕';
+}
+
+function fngColor(v) {
+  if (v <= 24) return '#ff4757';
+  if (v <= 44) return '#ff6b35';
+  if (v <= 55) return '#ffd32a';
+  if (v <= 75) return '#7bed9f';
+  return '#00d4aa';
+}
+
+// ═══════════════════════════════════════════
+//  UI UPDATE
+// ═══════════════════════════════════════════
+function updateUI() {
+  // ── 메인 카드 6개 ──
+  const cards = [
+    { id: 'xrp',  sym: 'XRP',  ubKey: 'xrp'  },
+    { id: 'btc',  sym: 'BTC',  ubKey: 'btc'  },
+    { id: 'hbar', sym: 'HBAR', ubKey: 'hbar' },
+    { id: 'xlm',  sym: 'XLM',  ubKey: 'xlm'  },
+  ];
+  cards.forEach(c => updateCard(c.id, c.sym, c.ubKey));
+
+  // ── 도미넌스 (Coinpaprika) ──
+  if (S.btcDom != null) setText('tick-btcd', S.btcDom.toFixed(1) + '%');
+  if (S.xrpDom != null) setText('tick-xrpd', S.xrpDom.toFixed(2) + '%');
+
+  // ── 티커 (KRW from Upbit, change from Binance) ──
+  setTicker('tick-xlm',  S.upbitMap.xlm?.trade_price,  S.binance.XLM?.change24h);
+  setTicker('tick-sol',  S.upbitMap.sol?.trade_price,  S.binance.SOL?.change24h);
+  setTicker('tick-hbar', S.upbitMap.hbar?.trade_price, S.binance.HBAR?.change24h);
+  setTicker('tick-doge', S.upbitMap.doge?.trade_price, S.binance.DOGE?.change24h);
+
+  // ── USD/KRW ──
+  if (S.usdKrw) setText('tick-fx-val', '₩' + Math.round(S.usdKrw).toLocaleString('ko-KR'));
+
+  // ── 주식/금/은 (Yahoo Finance v8) ──
+  applyYF('ks',  S.yf.ks,     true);
+  applyYF('sp',  S.yf.sp,     false);
+  applyYF('nq',  S.yf.nq,     false);
+  applyYFGold('gold',   S.yf.gold);
+  applyYFGold('silver', S.yf.silver);
+
+  // ── 공포/탐욕 ──
+  if (S.fng?.data?.length) {
+    const today = S.fng.data[0], yest = S.fng.data[1];
+    const v = parseInt(today.value);
+    setGauge(v);
+    setText('fng-number', v);
+    const lbl = document.getElementById('fng-label');
+    lbl.textContent = fngLabel(v);
+    lbl.style.color = fngColor(v);
+    document.getElementById('fng-number').style.color = fngColor(v);
+    if (yest) {
+      const yv = parseInt(yest.value);
+      document.getElementById('fng-yesterday').innerHTML =
+        `어제: <span style="color:${fngColor(yv)}">${yv} (${fngLabel(yv)})</span>`;
+    }
+  }
+
+  // ── 김프 탭 갱신 (열려 있을 때) ──
+  if (document.getElementById('tab-김프').style.display !== 'none') updateKimp();
+
+  setText('last-update', `업데이트: ${pad(new Date().getHours())}:${pad(new Date().getMinutes())}:${pad(new Date().getSeconds())}`);
+
+  syncTicker();
+}
+
+function updateCard(id, sym, ubKey) {
+  const bn = S.binance[sym];
+  const ub = S.upbitMap[ubKey];
+  if (!bn) return;
+
+  const usdNew  = bn.usd;
+  const krwPrev = parseFloat(document.getElementById(`card-${id}-usd`).dataset.val || '0');
+
+  setText(`card-${id}-usd`, fmtUSD(usdNew));
+  document.getElementById(`card-${id}-usd`).dataset.val = usdNew;
+  setText(`card-${id}-krw`, fmtKRW(ub?.trade_price ?? (usdNew * (S.usdKrw ?? 1400))));
+
+  const chgEl = document.getElementById(`card-${id}-chg`);
+  chgEl.textContent = fmtPct(bn.change24h);
+  chgEl.className   = 'change-badge ' + (bn.change24h >= 0 ? 'positive' : 'negative');
+
+  if (krwPrev && usdNew !== krwPrev) {
+    const card = document.getElementById(`card-${id}`);
+    card.classList.remove('flash-up', 'flash-down');
+    void card.offsetWidth;
+    card.classList.add(usdNew > krwPrev ? 'flash-up' : 'flash-down');
+  }
+}
+
+function setTicker(prefix, krwVal, chgVal) {
+  setText(`${prefix}-val`, fmtKRW(krwVal));
+  setChg(`${prefix}-chg`, chgVal);
+}
+
+function setChg(id, pct) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (pct == null) { el.textContent = '—'; el.className = 'ticker-change neu'; return; }
+  el.textContent = fmtPct(pct);
+  el.className = 'ticker-change ' + (pct > 0 ? 'pos' : pct < 0 ? 'neg' : 'neu');
+}
+
+// Yahoo Finance v8 응답 → 티커 반영  { price, change }
+function applyYF(prefix, data, isKRW = false) {
+  if (!data?.price) return;
+  const v = data.price;
+  if (isKRW) {
+    setText(`tick-${prefix}-val`, '₩' + Math.round(v).toLocaleString('ko-KR'));
+  } else {
+    setText(`tick-${prefix}-val`, Math.round(v).toLocaleString('en-US'));
+  }
+  setChg(`tick-${prefix}-chg`, data.change);
+}
+
+// 금/은 — USD/oz → KRW/g 변환
+function applyYFGold(prefix, data) {
+  if (!data?.price || !S.usdKrw) return;
+  const krwPerGram = data.price / 31.1035 * S.usdKrw;
+  setText(`tick-${prefix}-val`, fmtKRW(krwPerGram) + '/g');
+  setChg(`tick-${prefix}-chg`, data.change);
+}
+
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val ?? '—';
+}
+
+// ═══════════════════════════════════════════
+//  GAUGE
+// ═══════════════════════════════════════════
+function setGauge(value) {
+  const arc = document.getElementById('gaugeArc');
+  arc.setAttribute('stroke-dashoffset', Math.PI * 80 * (1 - value / 100));
+  arc.setAttribute('stroke', fngColor(value));
+  document.getElementById('gaugeNeedle').setAttribute(
+    'transform', `rotate(${-90 + value * 1.8} 90 90)`
+  );
+}
+
+// ═══════════════════════════════════════════
+//  김프 탭
+// ═══════════════════════════════════════════
+const KIMP_COINS = [
+  { sym: 'BTC',  ubKey: 'btc',  dot: '#f7931a', full: 'Bitcoin'  },
+  { sym: 'ETH',  ubKey: 'eth',  dot: '#627eea', full: 'Ethereum' },
+  { sym: 'XRP',  ubKey: 'xrp',  dot: '#346aa9', full: 'Ripple'   },
+  { sym: 'HBAR', ubKey: 'hbar', dot: '#00a6a6', full: 'Hedera'   },
+  { sym: 'XLM',  ubKey: 'xlm',  dot: '#7dc4e4', full: 'Stellar'  },
+  { sym: 'DOGE', ubKey: 'doge', dot: '#c2a633', full: 'Dogecoin' },
+  { sym: 'SOL',  ubKey: 'sol',  dot: '#9945ff', full: 'Solana'   },
+];
+
+function updateKimp() {
+  const rate = S.usdKrw;
+  if (!rate) return;
+  setText('kimp-rate', '₩' + Math.round(rate).toLocaleString('ko-KR'));
+
+  const rows = KIMP_COINS.map(c => {
+    const bn     = S.binance[c.sym];
+    const ub     = S.upbitMap[c.ubKey];
+    if (!bn) return '';
+    const calc   = bn.usd * rate;
+    const upbitP = ub?.trade_price;
+    const kimp   = upbitP ? (upbitP / calc - 1) * 100 : null;
+    const kc     = kimp == null ? 'kimp-neu' : Math.abs(kimp) < 0.3 ? 'kimp-neu' : kimp > 0 ? 'kimp-pos' : 'kimp-neg';
+
+    return `<tr>
+      <td><div class="kimp-coin">
+        <span class="kimp-dot" style="background:${c.dot}"></span>
+        <span>${c.sym}</span>
+        <span style="font-size:11px;color:var(--text-dim);font-weight:400">${c.full}</span>
+      </div></td>
+      <td>${fmtUSD(bn.usd)}</td>
+      <td>${fmtKRW(calc)}</td>
+      <td>${upbitP ? fmtKRW(upbitP) : '—'}</td>
+      <td class="${kc}">${kimp != null ? fmtPct(kimp) : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('kimp-tbody').innerHTML = rows ||
+    '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:20px">데이터 없음</td></tr>';
+}
+
+// ═══════════════════════════════════════════
+//  탭 전환
+// ═══════════════════════════════════════════
+let chartInited = false;
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const name = tab.dataset.tab;
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    ['시황','차트','김프'].forEach(t => {
+      document.getElementById(`tab-${t}`).style.display = t === name ? '' : 'none';
+    });
+    if (name === '차트' && !chartInited) { initChart('UPBIT:BTCKRW'); chartInited = true; }
+    if (name === '김프') updateKimp();
+  });
+});
+
+// ═══════════════════════════════════════════
+//  TRADINGVIEW
+// ═══════════════════════════════════════════
+function initChart(symbol) {
+  document.getElementById('tv-chart-container').innerHTML = '';
+  new TradingView.widget({
+    autosize: true, symbol, interval: '60', timezone: 'Asia/Seoul',
+    theme: 'dark', style: '1', locale: 'kr',
+    toolbar_bg: '#0a0f1e', enable_publishing: false, save_image: false,
+    container_id: 'tv-chart-container',
+    backgroundColor: 'rgba(8,13,26,1)',
+    gridColor: 'rgba(255,255,255,0.03)',
+    studies: ['Volume@tv-basicstudies'],
+  });
+}
+
+function switchChart(btn) {
+  document.querySelectorAll('.chart-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  initChart(btn.dataset.symbol);
+}
+
+// ═══════════════════════════════════════════
+//  별 배경
+// ═══════════════════════════════════════════
+const canvas = document.getElementById('starCanvas');
+const ctx    = canvas.getContext('2d');
+function resizeCanvas() { canvas.width = innerWidth; canvas.height = innerHeight; }
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+const stars = Array.from({ length: 200 }, () => ({
+  x: Math.random(), y: Math.random(),
+  r: Math.random() * 1.5 + 0.2,
+  a: Math.random() * 0.7 + 0.2,
+  s: Math.random() * 0.003 + 0.001,
+  ph: Math.random() * Math.PI * 2
+}));
+
+function drawStars(t) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  stars.forEach(s => {
+    const a = s.a * (0.6 + 0.4 * Math.sin(t * s.s * 60 + s.ph));
+    ctx.beginPath();
+    ctx.arc(s.x * canvas.width, s.y * canvas.height, s.r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(160,200,255,${a})`;
+    ctx.fill();
+  });
+  requestAnimationFrame(drawStars);
+}
+requestAnimationFrame(drawStars);
+
+// ═══════════════════════════════════════════
+//  세계 시계
+// ═══════════════════════════════════════════
+function pad(n) { return String(n).padStart(2, '0'); }
+
+function tzTime(tz) {
+  const d = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function updateClocks() {
+  setText('clock-seoul', tzTime('Asia/Seoul'));
+  setText('clock-ny',    tzTime('America/New_York'));
+  setText('clock-india', tzTime('Asia/Kolkata'));
+  setText('clock-tokyo', tzTime('Asia/Tokyo'));
+  const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  const days = ['일','월','화','수','목','금','토'];
+  setText('date-display', `${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())} (${days[d.getDay()]})`);
+}
+setInterval(updateClocks, 1000);
+updateClocks();
+
+// ═══════════════════════════════════════════
+//  티커 복제본 동기화 (무한 슬라이드용)
+// ═══════════════════════════════════════════
+const TICKER_SYNC_IDS = [
+  ['tick-btcd',     'tick-btcd-c'],
+  ['tick-btcd-chg', 'tick-btcd-chg-c'],
+  ['tick-xrpd',     'tick-xrpd-c'],
+  ['tick-xrpd-chg', 'tick-xrpd-chg-c'],
+  ['tick-xlm-val',  'tick-xlm-val-c'],
+  ['tick-xlm-chg',  'tick-xlm-chg-c'],
+  ['tick-sol-val',  'tick-sol-val-c'],
+  ['tick-sol-chg',  'tick-sol-chg-c'],
+  ['tick-hbar-val', 'tick-hbar-val-c'],
+  ['tick-hbar-chg', 'tick-hbar-chg-c'],
+  ['tick-doge-val', 'tick-doge-val-c'],
+  ['tick-doge-chg', 'tick-doge-chg-c'],
+  ['tick-sp-val',   'tick-sp-val-c'],
+  ['tick-sp-chg',   'tick-sp-chg-c'],
+  ['tick-nq-val',   'tick-nq-val-c'],
+  ['tick-nq-chg',   'tick-nq-chg-c'],
+  ['tick-ks-val',   'tick-ks-val-c'],
+  ['tick-ks-chg',   'tick-ks-chg-c'],
+  ['tick-fx-val',   'tick-fx-val-c'],
+  ['tick-gold-val', 'tick-gold-val-c'],
+  ['tick-gold-chg', 'tick-gold-chg-c'],
+  ['tick-silver-val','tick-silver-val-c'],
+  ['tick-silver-chg','tick-silver-chg-c'],
+];
+
+function syncTicker() {
+  TICKER_SYNC_IDS.forEach(([src, dst]) => {
+    const s = document.getElementById(src);
+    const d = document.getElementById(dst);
+    if (!s || !d) return;
+    d.textContent = s.textContent;
+    d.className   = s.className;
+  });
+}
+
+// ═══════════════════════════════════════════
+//  알트시즌 인덱스 (CoinGecko 무료 API)
+// ═══════════════════════════════════════════
+const STABLE_IDS = new Set([
+  'tether','usd-coin','binance-usd','dai','first-digital-usd',
+  'usds','true-usd','frax','pax-dollar','gemini-dollar',
+  'liquity-usd','celo-dollar','terrausd','wrapped-bitcoin',
+]);
+
+let _altTimer = null;
+
+async function fetchAltSeason() {
+  try {
+    const url = 'https://api.coingecko.com/api/v3/coins/markets' +
+      '?vs_currency=usd&order=market_cap_desc&per_page=50&page=1' +
+      '&price_change_percentage=90d&sparkline=false';
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) throw new Error('CoinGecko ' + res.status);
+    const coins = await res.json();
+
+    const btc   = coins.find(c => c.id === 'bitcoin');
+    const btc90 = btc?.price_change_percentage_90d_in_currency ?? 0;
+    const alts  = coins.filter(c => c.id !== 'bitcoin' && !STABLE_IDS.has(c.id));
+    const beat  = alts.filter(c => (c.price_change_percentage_90d_in_currency ?? -Infinity) > btc90);
+    const score = alts.length ? Math.round(beat.length / alts.length * 100) : null;
+
+    renderAltSeason(score, beat.length, alts.length, btc90);
+  } catch (e) {
+    console.warn('알트시즌 오류:', e.message);
+  }
+}
+
+function setAltGauge(score, color) {
+  const arc    = document.getElementById('altGaugeArc');
+  const needle = document.getElementById('altGaugeNeedle');
+  if (!arc || !needle) return;
+  arc.setAttribute('stroke-dashoffset', (251.3 * (1 - score / 100)).toFixed(2));
+  arc.setAttribute('stroke', color);
+  needle.setAttribute('transform', `rotate(${-90 + score * 1.8} 90 90)`);
+}
+
+function renderAltSeason(score, beatCount, totalAlts, btc90) {
+  if (score == null) return;
+
+  let color, label, zoneIdx;
+  if      (score >= 75) { color = '#00d4aa'; label = '알트 시즌';  zoneIdx = 3; }
+  else if (score >= 50) { color = '#4aaeff'; label = '알트 우세 ↑'; zoneIdx = 2; }
+  else if (score >= 25) { color = '#ffd32a'; label = '중립 ↔';      zoneIdx = 1; }
+  else                  { color = '#f7931a'; label = 'BTC 시즌 ₿';  zoneIdx = 0; }
+
+  // 게이지
+  setAltGauge(score, color);
+
+  // 숫자 + 레이블
+  const scoreEl = document.getElementById('alt-score');
+  const labelEl = document.getElementById('alt-season-label');
+  if (scoreEl) { scoreEl.textContent = score; scoreEl.style.color = color; }
+  if (labelEl) { labelEl.textContent = label; labelEl.style.color = color; }
+
+  // 존 하이라이트
+  [0,1,2,3].forEach(i => {
+    const el = document.getElementById(`alt-zone-${i}`);
+    if (el) el.classList.toggle('active', i === zoneIdx);
+  });
+
+  // 통계 박스
+  const beatEl  = document.getElementById('alt-beat-count');
+  const btc90El = document.getElementById('alt-btc90');
+  if (beatEl)  { beatEl.textContent  = `${beatCount}/${totalAlts}개`; beatEl.style.color = color; }
+  if (btc90El) {
+    const sign = btc90 >= 0 ? '+' : '';
+    btc90El.textContent = sign + btc90.toFixed(1) + '%';
+    btc90El.style.color = btc90 >= 0 ? 'var(--positive)' : 'var(--negative)';
+  }
+}
+
+// 5분마다 갱신 (CoinGecko 무료 rate limit 고려)
+fetchAltSeason();
+_altTimer = setInterval(fetchAltSeason, 5 * 60 * 1000);
+
+// ═══════════════════════════════════════════
+//  주요 뉴스 (rss2json → 소스별 폴백 + 한국어 자동 번역)
+// ═══════════════════════════════════════════
+const R2J = url =>
+  'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(url) + '&count=10';
+
+const NEWS_SOURCES = {
+  btc: [
+    { url: R2J('https://cointelegraph.com/rss/tag/bitcoin'),  label: 'CoinTelegraph',   kw: null },
+    { url: R2J('https://bitcoinmagazine.com/.rss/full/'),      label: 'Bitcoin Magazine', kw: null },
+    { url: R2J('https://decrypt.co/feed'),                     label: 'Decrypt',          kw: ['Bitcoin','BTC'] },
+  ],
+  xrp: [
+    { url: R2J('https://cointelegraph.com/rss/tag/xrp'),      label: 'CoinTelegraph', kw: null },
+    { url: R2J('https://u.today/rss'),                         label: 'U.Today',       kw: ['XRP','Ripple'] },
+    { url: R2J('https://decrypt.co/feed'),                     label: 'Decrypt',       kw: ['XRP','Ripple'] },
+  ],
+  xlm: [
+    { url: R2J('https://cointelegraph.com/rss/tag/stellar'),  label: 'CoinTelegraph', kw: null },
+    { url: R2J('https://u.today/rss'),                         label: 'U.Today',       kw: ['XLM','Stellar'] },
+    { url: R2J('https://decrypt.co/feed'),                     label: 'Decrypt',       kw: ['XLM','Stellar'] },
+  ],
+};
+
+// 번역 캐시 — 같은 원문은 재번역하지 않음
+const _transCache = {};
+
+async function translateKo(text) {
+  if (_transCache[text]) return _transCache[text];
+
+  // 1순위: Google Translate 비공식 엔드포인트 (무료·무키)
+  try {
+    const url = 'https://translate.googleapis.com/translate_a/single' +
+      '?client=gtx&sl=auto&tl=ko&dt=t&q=' + encodeURIComponent(text);
+    const res  = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (res.ok) {
+      const json = await res.json();
+      const result = json[0]?.map(c => c[0]).join('').trim();
+      if (result) { _transCache[text] = result; return result; }
+    }
+  } catch {}
+
+  // 2순위: MyMemory (무료 공개 API)
+  try {
+    const url2 = 'https://api.mymemory.translated.net/get?q=' +
+      encodeURIComponent(text) + '&langpair=en|ko';
+    const res2  = await fetch(url2, { signal: AbortSignal.timeout(6000) });
+    if (res2.ok) {
+      const d = await res2.json();
+      const result = d.responseData?.translatedText?.trim();
+      if (result) { _transCache[text] = result; return result; }
+    }
+  } catch {}
+
+  return text; // 번역 실패 시 원문 표시
+}
+
+async function trySource({ url, kw }) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (data.status !== 'ok' || !data.items?.length) return null;
+  const item = kw
+    ? data.items.find(i => kw.some(k => i.title.toUpperCase().includes(k.toUpperCase())))
+    : data.items[0];
+  return item ?? null;
+}
+
+async function fetchNews() {
+  await Promise.all(Object.entries(NEWS_SOURCES).map(async ([key, sources]) => {
+    const titleEl = document.getElementById(`news-${key}-title`);
+    const metaEl  = document.getElementById(`news-${key}-meta`);
+
+    for (const src of sources) {
+      try {
+        const item = await trySource(src);
+        if (!item) continue;
+
+        const koTitle = await translateKo(item.title);
+
+        if (titleEl) {
+          titleEl.innerHTML =
+            `<a href="${item.link}" target="_blank" rel="noopener noreferrer">${koTitle}</a>`;
+        }
+        if (metaEl) {
+          const d = item.pubDate ? new Date(item.pubDate) : null;
+          const time = d && !isNaN(d)
+            ? d.toLocaleString('ko-KR', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' }) + ' · '
+            : '';
+          metaEl.textContent = time + src.label;
+        }
+        return;
+      } catch { /* 다음 소스로 */ }
+    }
+
+    if (titleEl) titleEl.textContent = '뉴스를 불러올 수 없습니다';
+    if (metaEl)  metaEl.textContent  = '—';
+  }));
+}
+
+fetchNews();
+setInterval(fetchNews, 10 * 60 * 1000);
+
+// ═══════════════════════════════════════════
+//  로딩
+// ═══════════════════════════════════════════
+function setLoading(on) {
+  if (on) document.getElementById('last-update').innerHTML = '<span class="spinner"></span>갱신 중...';
+}
+
+// ═══════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════
+refreshData();
+setInterval(refreshData, REFRESH_MS);
+
+// ═══════════════════════════════════════════
+//  텔레그램 자동 전송
+// ═══════════════════════════════════════════
+function openTgModal() {
+  document.getElementById('tg-token-input').value  = localStorage.getItem('tg_token')   || '';
+  document.getElementById('tg-chatid-input').value = localStorage.getItem('tg_chat_id') || '';
+  document.getElementById('tg-status').textContent = '';
+  document.getElementById('tg-overlay').classList.add('open');
+}
+function closeTgModal() {
+  document.getElementById('tg-overlay').classList.remove('open');
+}
+function closeTgModalOutside(e) {
+  if (e.target === document.getElementById('tg-overlay')) closeTgModal();
+}
+function saveTgConfig() {
+  const token  = document.getElementById('tg-token-input').value.trim();
+  const chatId = document.getElementById('tg-chatid-input').value.trim();
+  if (!token || !chatId) {
+    setTgStatus('❌ 토큰과 Chat ID를 모두 입력해주세요.', false);
+    return;
+  }
+  localStorage.setItem('tg_token',   token);
+  localStorage.setItem('tg_chat_id', chatId);
+  setTgStatus('✅ 저장됐습니다. 매일 오전 9시에 자동 전송됩니다.', true);
+}
+function setTgStatus(msg, ok) {
+  const el = document.getElementById('tg-status');
+  if (!el) return;
+  el.textContent  = msg;
+  el.className    = 'tg-status ' + (ok ? 'ok' : 'err');
+}
+
+function buildTgMessage() {
+  const now  = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  const days = ['일','월','화','수','목','금','토'];
+  const dateStr = `${now.getFullYear()}.${pad(now.getMonth()+1)}.${pad(now.getDate())} (${days[now.getDay()]})`;
+
+  const line = (sym, ubKey) => {
+    const bn = S.binance[sym];
+    const ub = S.upbitMap[ubKey];
+    if (!bn) return `• ${sym}: —`;
+    const krw = ub?.trade_price ? fmtKRW(ub.trade_price) : '—';
+    const chg = bn.change24h != null
+      ? (bn.change24h >= 0 ? '+' : '') + bn.change24h.toFixed(2) + '%' : '—';
+    return `• ${sym}: ${fmtUSD(bn.usd)} | ${krw} (${chg})`;
+  };
+
+  const fngVal  = S.fng?.data?.[0] ? parseInt(S.fng.data[0].value) : null;
+  const altScore = document.getElementById('alt-score')?.textContent || '—';
+  const altLbl   = document.getElementById('alt-season-label')?.textContent || '—';
+
+  const newsText = key => {
+    const a = document.querySelector(`#news-${key}-title a`);
+    return a ? a.textContent.trim() : document.getElementById(`news-${key}-title`)?.textContent?.trim() || '—';
+  };
+
+  return [
+    `📊 <b>본인판단 — 아침 시황</b>`,
+    `📅 ${dateStr}`,
+    ``,
+    `💰 <b>주요 코인 가격</b>`,
+    line('BTC',  'btc'),
+    line('XRP',  'xrp'),
+    line('HBAR', 'hbar'),
+    line('XLM',  'xlm'),
+    ``,
+    `😱 공포/탐욕: <b>${fngVal != null ? fngVal + ' (' + fngLabel(fngVal) + ')' : '—'}</b>`,
+    `🚀 알트시즌 인덱스: <b>${altScore} — ${altLbl}</b>`,
+    ``,
+    `📰 <b>주요 뉴스</b>`,
+    `• BTC: ${newsText('btc')}`,
+    `• XRP: ${newsText('xrp')}`,
+    `• XLM: ${newsText('xlm')}`,
+    ``,
+    `<i>본인판단 대시보드 자동 발송 🤖</i>`,
+  ].join('\n');
+}
+
+async function sendTelegramReport(silent = true) {
+  const token  = localStorage.getItem('tg_token');
+  const chatId = localStorage.getItem('tg_chat_id');
+  if (!token || !chatId) {
+    if (!silent) setTgStatus('❌ 먼저 Bot Token과 Chat ID를 저장해주세요.', false);
+    return;
+  }
+  if (!silent) setTgStatus('전송 중...', true);
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: buildTgMessage(), parse_mode: 'HTML' }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.description);
+    if (!silent) setTgStatus('✅ 전송 완료!', true);
+  } catch (e) {
+    if (!silent) setTgStatus('❌ 전송 실패: ' + e.message, false);
+    console.warn('Telegram 전송 오류:', e.message);
+  }
+}
+
+// 매 분 체크 — 오전 9시 정각(한국 시간)에 1회 자동 전송
+let _tgSentDate = localStorage.getItem('tg_sent_date') || '';
+setInterval(() => {
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+  if (now.getHours() === 9 && now.getMinutes() === 0 && _tgSentDate !== today) {
+    _tgSentDate = today;
+    localStorage.setItem('tg_sent_date', today);
+    sendTelegramReport(true);
+  }
+}, 60 * 1000);
+</script>
+</body>
+</html>
